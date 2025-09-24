@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Use Material Components M3 XML theme so the manifest can resolve it -->
+    <style name="Theme.Offgridchat" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Optional overrides -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+</resources>

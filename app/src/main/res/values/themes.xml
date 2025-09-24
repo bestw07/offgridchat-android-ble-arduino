@@ -1,0 +1,8 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Material3 theme wrapper used by Compose -->
+    <style name="Theme.OffGridChat" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Keep empty; Compose handles colors/typography in code -->
+    </style>
+
+</resources>
