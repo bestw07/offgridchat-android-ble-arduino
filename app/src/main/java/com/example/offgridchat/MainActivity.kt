@@ -24,6 +24,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize BLE connection
+        chatViewModel.initializeBle(this)
+        
         setContent {
             OffGridTheme {
                 Surface(
@@ -65,7 +69,8 @@ fun OffGridNavHost(chatViewModel: ChatViewModel) {
                 onSendText = { chatViewModel.sendMessage(it) },
                 onAttach = { chatViewModel.attachFile() },
                 onStartMic = { chatViewModel.startRecording() },
-                onStopMic = { chatViewModel.stopRecording() }
+                onStopMic = { chatViewModel.stopRecording() },
+                onPhotoSelected = { uri -> chatViewModel.handlePhotoSelected(uri) }
             )
         }
     }

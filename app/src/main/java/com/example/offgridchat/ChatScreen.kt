@@ -1,32 +1,25 @@
 package com.example.offgridchat
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+// Using text-based alternatives instead of icons for better compatibility
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -39,37 +32,85 @@ import androidx.compose.ui.unit.sp
  * NOTE: Buttons use text labels to avoid icon dependency issues.
  * You can swap them to Icons later if you add material-icons-extended.
  */
-@OptIn(ExperimentalMaterial3Api::class) // Opt-in for experimental Material 3 APIs
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     isBleConnected: Boolean,
-    messages: List<ChatMessage>, // Assumes ChatMessage is defined in the same package
+    messages: List<ChatMessage>,
     onBack: () -> Unit,
     onSendText: (String) -> Unit,
     onAttach: () -> Unit,
     onStartMic: () -> Unit,
     onStopMic: () -> Unit,
+    onPhotoSelected: (Uri) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var isRecording by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    
+    // Photo picker launcher
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { onPhotoSelected(it) }
+    }
+
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    val status = if (isBleConnected) "Connected" else "Disconnected"
-                    Text(text = "Chat 1 • $status")
+                    Column {
+                        Text(
+                            text = "OffGrid Chat",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isBleConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                    )
+                            )
+                            Text(
+                                text = if (isBleConnected) "🟢 Connected to ESP32" else "🔴 Disconnected - Check BLE",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isBleConnected) Color(0xFF4CAF50) else Color(0xFFF44336),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
-                        Text("Back")
+                    TextButton(onClick = onBack) {
+                        Text(
+                            text = "← Back",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         },
         bottomBar = {
-            BottomBar(
+            ModernInputBar(
                 text = input,
                 onTextChange = { input = it },
                 onSend = {
@@ -79,7 +120,7 @@ fun ChatScreen(
                         input = TextFieldValue("")
                     }
                 },
-                onAttach = onAttach,
+                onAttach = { photoPickerLauncher.launch("image/*") },
                 isRecording = isRecording,
                 onMic = {
                     if (isRecording) {
@@ -90,25 +131,109 @@ fun ChatScreen(
                     isRecording = !isRecording
                 }
             )
-        }
-    ) { pad ->
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(pad),
-            contentPadding = PaddingValues(vertical = 12.dp, horizontal = 12.dp),
-            reverseLayout = true // Optional: To show latest messages at the bottom
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
+        Column(
+            modifier = modifier.fillMaxSize()
         ) {
-            items(messages.reversed()) { msg -> // Reverse messages if reverseLayout is true
-                MessageBubble(message = msg)
-                Spacer(modifier = Modifier.height(8.dp))
+            // Connection status banner
+            if (!isBleConnected) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFF44336).copy(alpha = 0.1f)
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, 
+                        Color(0xFFF44336).copy(alpha = 0.3f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "⚠️",
+                            fontSize = 20.sp
+                        )
+                        Column {
+                            Text(
+                                text = "Not Connected",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF44336)
+                            )
+                            Text(
+                                text = "Make sure your ESP32 is powered on and nearby",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (messages.isEmpty()) {
+                // Empty state
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "💬",
+                        fontSize = 64.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Start a conversation",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Send messages, photos, or voice notes",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 16.dp, horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    reverseLayout = true
+                ) {
+                    items(messages.reversed()) { msg ->
+                        ModernMessageBubble(message = msg)
+                    }
+                }
+            }
             }
         }
     }
 }
 
 @Composable
-fun BottomBar(
+fun ModernInputBar(
     text: TextFieldValue,
     onTextChange: (TextFieldValue) -> Unit,
     onSend: () -> Unit,
@@ -119,57 +244,146 @@ fun BottomBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shadowElevation = 8.dp // Optional: add some elevation
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surface
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
                 .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = onAttach, modifier = Modifier.padding(end = 8.dp)) {
-                Text("Attach")
+            // Attach button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(
+                    onClick = onAttach,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Text(
+                        text = "📎",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 18.sp
+                    )
+                }
+                Text(
+                    text = "Photo",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp
+                )
             }
-            Button(onClick = onMic, modifier = Modifier.padding(end = 8.dp)) {
-                Text(if (isRecording) "Stop" else "Mic")
-            }
+            
+            // Text input
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message") }
+                placeholder = { 
+                    Text(
+                        "Type a message...",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ) 
+                },
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                ),
+                singleLine = true
             )
-            Button(onClick = onSend, modifier = Modifier.padding(start = 8.dp)) {
-                Text("Send")
+            
+            // Mic/Send button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Button(
+                    onClick = if (text.text.isNotEmpty()) onSend else onMic,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isRecording) Color(0xFFF44336) 
+                        else if (text.text.isNotEmpty()) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text(
+                        text = if (text.text.isNotEmpty()) "➤" 
+                        else if (isRecording) "⏹" 
+                        else "🎤",
+                        color = Color.White,
+                        fontSize = 18.sp
+                    )
+                }
+                Text(
+                    text = if (text.text.isNotEmpty()) "Send" 
+                    else if (isRecording) "Stop" 
+                    else "Voice",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp
+                )
             }
         }
     }
 }
 
 @Composable
-fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
-    // Basic bubble, align based on `isMine`
-    val horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
-    val bubbleColor = if (message.isMine) Color(0xFFDCF8C6) else Color(0xFFFFFFFF) // WhatsApp-like colors
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalAlignment = horizontalAlignment
+fun ModernMessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
+    val isMine = message.isMine
+    val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val textColor = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
         Surface(
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            modifier = Modifier.widthIn(max = 280.dp),
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (isMine) 16.dp else 4.dp,
+                bottomEnd = if (isMine) 4.dp else 16.dp
+            ),
             color = bubbleColor,
-            shadowElevation = 1.dp
+            shadowElevation = 2.dp
         ) {
-            Text(
-                text = message.text,
-                modifier = Modifier.padding(all = 12.dp),
-                fontSize = 16.sp
-            )
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = textColor,
+                    lineHeight = 20.sp
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                Text(
+                    text = formatTime(message.timestampMillis),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor.copy(alpha = 0.7f),
+                    modifier = Modifier.align(if (isMine) Alignment.End else Alignment.Start)
+                )
+            }
         }
-        // You could add sender name or timestamp here if needed
-        // Text(text = "Sender: ${message.senderId} at ${message.timestamp}", fontSize = 10.sp, color = Color.Gray)
     }
+}
+
+private fun formatTime(timestampMillis: Long): String {
+    val date = java.util.Date(timestampMillis)
+    val format = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    return format.format(date)
 }
