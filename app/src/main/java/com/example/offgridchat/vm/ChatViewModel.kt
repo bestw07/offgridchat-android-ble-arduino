@@ -51,6 +51,8 @@ class ChatViewModel : ViewModel() {
                         isBleConnected = (status == "connected")
                         if (isBleConnected) {
                             println("[DEBUG] Successfully connected to ESP32!")
+                        } else {
+                            println("[DEBUG] Connection failed or disconnected: $status")
                         }
                     }
                 } catch (e: Exception) {

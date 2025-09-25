@@ -19,6 +19,7 @@ class BleClient(private val ctx: Context) {
 
     private var gatt: BluetoothGatt? = null
     private var connected = false
+    private var connectionCallback: ((String) -> Unit)? = null
 
     private val incoming_ = MutableSharedFlow<ByteArray>(
         extraBufferCapacity = 16,
@@ -54,6 +55,7 @@ class BleClient(private val ctx: Context) {
         Manifest.permission.ACCESS_FINE_LOCATION
     ])
     fun scanAndConnect(onStatus: (String) -> Unit = {}) {
+        connectionCallback = onStatus
         println("[DEBUG] BLE: Starting scan for ESP32 devices...")
         val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
         val scanner = adapter.bluetoothLeScanner
@@ -114,13 +116,15 @@ class BleClient(private val ctx: Context) {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             println("[DEBUG] BLE: Connection state changed - status: $status, newState: $newState")
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connected = true
                 println("[DEBUG] BLE: Connected! Discovering services...")
+                connectionCallback?.invoke("connected")
                 gatt.discoverServices()
             } else {
                 connected = false
-                println("[DEBUG] BLE: Disconnected")
+                println("[DEBUG] BLE: Disconnected - status: $status, newState: $newState")
+                connectionCallback?.invoke("disconnected")
             }
         }
 
@@ -148,6 +152,7 @@ class BleClient(private val ctx: Context) {
                 @Suppress("DEPRECATION")
                 gatt.writeDescriptor(cccd) // still needed on many devices
                 println("[DEBUG] BLE: Notifications enabled - connection complete!")
+                connectionCallback?.invoke("connected")
             }
         }
 
