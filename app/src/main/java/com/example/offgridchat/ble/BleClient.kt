@@ -2,6 +2,9 @@ package com.example.offgridchat.ble
 
 import android.Manifest
 import android.bluetooth.*
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -38,10 +41,56 @@ class BleClient(private val ctx: Context) {
         Manifest.permission.ACCESS_FINE_LOCATION
     ])
     fun connectAuto(mac: String, onStatus: (String) -> Unit = {}) {
+        println("[DEBUG] BLE: Attempting to connect to MAC: $mac")
         val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
         val dev = adapter.getRemoteDevice(mac)
+        println("[DEBUG] BLE: Device created, starting GATT connection...")
         onStatus("connecting")
         gatt = dev.connectGatt(ctx, false, gattCb)
+    }
+
+    @RequiresPermission(anyOf = [
+        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ])
+    fun scanAndConnect(onStatus: (String) -> Unit = {}) {
+        println("[DEBUG] BLE: Starting scan for ESP32 devices...")
+        val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        val scanner = adapter.bluetoothLeScanner
+        
+        val scanCallback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val device = result.device
+                val deviceName = device.name
+                println("[DEBUG] BLE: Found device: $deviceName (${device.address})")
+                
+                // Look for ESP32 devices with Nordic UART service
+                if (deviceName?.contains("ESP32", ignoreCase = true) == true || 
+                    deviceName?.contains("OffGridChat", ignoreCase = true) == true) {
+                    println("[DEBUG] BLE: Found ESP32 device: $deviceName, connecting...")
+                    scanner.stopScan(this)
+                    onStatus("connecting")
+                    gatt = device.connectGatt(ctx, false, gattCb)
+                }
+            }
+            
+            override fun onScanFailed(errorCode: Int) {
+                println("[DEBUG] BLE: Scan failed with error: $errorCode")
+                onStatus("scan_failed")
+            }
+        }
+        
+        // Start scanning for 10 seconds
+        scanner.startScan(scanCallback)
+        
+        // Stop scanning after 10 seconds if no device found
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            scanner.stopScan(scanCallback)
+            if (!connected) {
+                println("[DEBUG] BLE: Scan timeout - no ESP32 found")
+                onStatus("timeout")
+            }
+        }, 10000)
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -64,17 +113,32 @@ class BleClient(private val ctx: Context) {
     private val gattCb = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            println("[DEBUG] BLE: Connection state changed - status: $status, newState: $newState")
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connected = true
+                println("[DEBUG] BLE: Connected! Discovering services...")
                 gatt.discoverServices()
             } else {
                 connected = false
+                println("[DEBUG] BLE: Disconnected")
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            val svc = gatt.getService(BleUuids.SERVICE) ?: return
-            val notifyCh = svc.getCharacteristic(BleUuids.CHAR_NOTIFY) ?: return
+            println("[DEBUG] BLE: Services discovered - status: $status")
+            val svc = gatt.getService(BleUuids.SERVICE)
+            if (svc == null) {
+                println("[DEBUG] BLE: ERROR - Nordic UART service not found!")
+                return
+            }
+            println("[DEBUG] BLE: Nordic UART service found")
+            
+            val notifyCh = svc.getCharacteristic(BleUuids.CHAR_NOTIFY)
+            if (notifyCh == null) {
+                println("[DEBUG] BLE: ERROR - Notify characteristic not found!")
+                return
+            }
+            println("[DEBUG] BLE: Notify characteristic found, enabling notifications...")
             gatt.setCharacteristicNotification(notifyCh, true)
 
             // Enable CCCD notifications
@@ -83,6 +147,7 @@ class BleClient(private val ctx: Context) {
                 cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 @Suppress("DEPRECATION")
                 gatt.writeDescriptor(cccd) // still needed on many devices
+                println("[DEBUG] BLE: Notifications enabled - connection complete!")
             }
         }
 

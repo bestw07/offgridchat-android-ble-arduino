@@ -1,27 +1,32 @@
 package com.example.offgridchat
 
+import android.media.MediaPlayer
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-// Using text-based alternatives instead of icons for better compatibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import java.io.File
 
 /**
  * Minimal chat screen that compiles cleanly with Material3.
@@ -362,12 +367,36 @@ fun ModernMessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
             Column(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = textColor,
-                    lineHeight = 20.sp
-                )
+                when (message.type) {
+                    MessageType.TEXT -> {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = textColor,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    MessageType.VOICE -> {
+                        VoiceMessageContent(
+                            message = message,
+                            textColor = textColor
+                        )
+                    }
+                    MessageType.IMAGE -> {
+                        ImageMessageContent(
+                            message = message,
+                            textColor = textColor
+                        )
+                    }
+                    MessageType.SYSTEM -> {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textColor.copy(alpha = 0.8f),
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+                }
                 
                 Spacer(modifier = Modifier.height(4.dp))
                 
@@ -379,6 +408,118 @@ fun ModernMessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun VoiceMessageContent(
+    message: ChatMessage,
+    textColor: Color
+) {
+    val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(false) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    
+    Row(
+        modifier = Modifier
+            .clickable {
+                try {
+                    if (isPlaying) {
+                        mediaPlayer?.stop()
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        isPlaying = false
+                    } else {
+                        message.filePath?.let { filePath ->
+                            val file = File(filePath)
+                            if (file.exists()) {
+                                mediaPlayer = MediaPlayer().apply {
+                                    setDataSource(filePath)
+                                    prepare()
+                                    start()
+                                    setOnCompletionListener {
+                                        isPlaying = false
+                                        release()
+                                    }
+                                }
+                                isPlaying = true
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Handle playback error
+                }
+            }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (isPlaying) "🔊 Playing..." else "🎤 Tap to play",
+            style = MaterialTheme.typography.bodyLarge,
+            color = textColor
+        )
+    }
+}
+
+@Composable
+fun ImageMessageContent(
+    message: ChatMessage,
+    textColor: Color
+) {
+    var showFullImage by remember { mutableStateOf(false) }
+    
+    Column {
+        Text(
+            text = message.text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = textColor,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        message.fileUri?.let { uri ->
+            AsyncImage(
+                model = uri,
+                contentDescription = "Image",
+                modifier = Modifier
+                    .size(200.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { showFullImage = true },
+                contentScale = ContentScale.Crop
+            )
+        }
+        
+        if (showFullImage) {
+            FullScreenImageDialog(
+                imageUri = message.fileUri,
+                onDismiss = { showFullImage = false }
+            )
+        }
+    }
+}
+
+@Composable
+fun FullScreenImageDialog(
+    imageUri: Uri?,
+    onDismiss: () -> Unit
+) {
+    if (imageUri != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Image") },
+            text = {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = "Full size image",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.Fit
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.example.offgridchat.ChatMessage
+import com.example.offgridchat.MessageType
 import com.example.offgridchat.ble.BleClient
 import com.example.offgridchat.ble.BleUuids
 import kotlinx.coroutines.CoroutineScope
@@ -43,20 +44,21 @@ class ChatViewModel : ViewModel() {
         if (bleClient?.canUseBle() == true) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    bleClient?.connectAuto(BleUuids.BOARD_A_MAC) { status ->
+                    println("[DEBUG] Scanning for ESP32 devices...")
+                    // Try to connect to any ESP32 with Nordic UART service
+                    bleClient?.scanAndConnect { status ->
+                        println("[DEBUG] Connection status: $status")
                         isBleConnected = (status == "connected")
+                        if (isBleConnected) {
+                            println("[DEBUG] Successfully connected to ESP32!")
+                        }
                     }
                 } catch (e: Exception) {
-                    // Try backup board if first fails
-                    try {
-                        bleClient?.connectAuto(BleUuids.BOARD_B_MAC) { status ->
-                            isBleConnected = (status == "connected")
-                        }
-                    } catch (e2: Exception) {
-                        // Connection failed
-                    }
+                    println("[DEBUG] Connection failed: ${e.message}")
                 }
             }
+        } else {
+            println("[DEBUG] BLE permissions not available")
         }
     }
 
@@ -74,7 +76,8 @@ class ChatViewModel : ViewModel() {
             id = idGen.getAndIncrement(),
             text = text.trim(),
             isMine = true,
-            timestampMillis = System.currentTimeMillis()
+            timestampMillis = System.currentTimeMillis(),
+            type = MessageType.TEXT
         )
         _messages.add(message)
         
@@ -98,7 +101,8 @@ class ChatViewModel : ViewModel() {
                 id = idGen.getAndIncrement(),
                 text = text.trim(),
                 isMine = false, // Message from someone else
-                timestampMillis = System.currentTimeMillis()
+                timestampMillis = System.currentTimeMillis(),
+                type = MessageType.TEXT
             )
         )
     }
@@ -116,17 +120,25 @@ class ChatViewModel : ViewModel() {
                 inputStream?.close()
                 
                 if (bytes != null) {
+                    // Save photo locally for display
+                    val fileName = "photo_${System.currentTimeMillis()}.jpg"
+                    val file = File(context?.cacheDir, fileName)
+                    file.writeBytes(bytes)
+                    
                     // Send photo data via BLE
                     val header = "PHOTO:${bytes.size}:".toByteArray()
                     bleClient?.write(header + bytes)
                     
-                    // Add message to chat
+                    // Add message to chat with image
                     _messages.add(
                         ChatMessage(
                             id = idGen.getAndIncrement(),
-                            text = "📷 Photo sent",
+                            text = "📷 Photo",
                             isMine = true,
-                            timestampMillis = System.currentTimeMillis()
+                            timestampMillis = System.currentTimeMillis(),
+                            type = MessageType.IMAGE,
+                            filePath = file.absolutePath,
+                            fileUri = uri
                         )
                     )
                 }
@@ -174,18 +186,19 @@ class ChatViewModel : ViewModel() {
                         val header = "AUDIO:${bytes.size}:".toByteArray()
                         bleClient?.write(header + bytes)
                         
-                        // Add message to chat
+                        // Add message to chat with audio file
                         _messages.add(
                             ChatMessage(
                                 id = idGen.getAndIncrement(),
-                                text = "🎤 Voice message sent",
+                                text = "🎤 Voice message",
                                 isMine = true,
-                                timestampMillis = System.currentTimeMillis()
+                                timestampMillis = System.currentTimeMillis(),
+                                type = MessageType.VOICE,
+                                filePath = file.absolutePath
                             )
                         )
                         
-                        // Clean up file
-                        file.delete()
+                        // Don't delete file - keep it for playback
                     } catch (e: Exception) {
                         // Handle error
                     }

@@ -1,5 +1,6 @@
 package com.example.offgridchat
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -70,7 +71,7 @@ fun OffGridNavHost(chatViewModel: ChatViewModel) {
                 onAttach = { chatViewModel.attachFile() },
                 onStartMic = { chatViewModel.startRecording() },
                 onStopMic = { chatViewModel.stopRecording() },
-                onPhotoSelected = { uri -> chatViewModel.handlePhotoSelected(uri) }
+                onPhotoSelected = { uri: Uri -> chatViewModel.handlePhotoSelected(uri) }
             )
         }
     }
