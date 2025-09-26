@@ -58,7 +58,23 @@ class BleClient(private val ctx: Context) {
         connectionCallback = onStatus
         println("[DEBUG] BLE: Starting scan for ESP32 devices...")
         val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        
+        if (!adapter.isEnabled) {
+            println("[DEBUG] BLE: Bluetooth adapter is disabled!")
+            onStatus("bluetooth_disabled")
+            return
+        }
+        
+        if (!adapter.isMultipleAdvertisementSupported) {
+            println("[DEBUG] BLE: Multiple advertisement not supported")
+        }
+        
         val scanner = adapter.bluetoothLeScanner
+        if (scanner == null) {
+            println("[DEBUG] BLE: BLE scanner is null!")
+            onStatus("scanner_null")
+            return
+        }
         
         val scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -66,13 +82,16 @@ class BleClient(private val ctx: Context) {
                 val deviceName = device.name
                 println("[DEBUG] BLE: Found device: $deviceName (${device.address})")
                 
-                // Look for ESP32 devices with Nordic UART service
-                if (deviceName?.contains("ESP32", ignoreCase = true) == true || 
+                // Look for ESP32 devices - check for exact name match first
+                if (deviceName?.contains("OffGridChat-ESP32", ignoreCase = true) == true ||
+                    deviceName?.contains("ESP32", ignoreCase = true) == true || 
                     deviceName?.contains("OffGridChat", ignoreCase = true) == true) {
                     println("[DEBUG] BLE: Found ESP32 device: $deviceName, connecting...")
                     scanner.stopScan(this)
                     onStatus("connecting")
                     gatt = device.connectGatt(ctx, false, gattCb)
+                } else {
+                    println("[DEBUG] BLE: Ignoring device: $deviceName (not ESP32)")
                 }
             }
             
@@ -85,14 +104,45 @@ class BleClient(private val ctx: Context) {
         // Start scanning for 10 seconds
         scanner.startScan(scanCallback)
         
-        // Stop scanning after 10 seconds if no device found
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            scanner.stopScan(scanCallback)
-            if (!connected) {
-                println("[DEBUG] BLE: Scan timeout - no ESP32 found")
-                onStatus("timeout")
+            // Stop scanning after 10 seconds if no device found
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                scanner.stopScan(scanCallback)
+                if (!connected) {
+                    println("[DEBUG] BLE: Scan timeout - no ESP32 found")
+                    println("[DEBUG] BLE: Trying direct MAC connection as fallback...")
+                    // Try direct connection to known MAC addresses
+                    tryDirectMacConnection(onStatus)
+                }
+            }, 10000)
+    }
+
+    private fun tryDirectMacConnection(onStatus: (String) -> Unit) {
+        val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        val bondedDevices = adapter.bondedDevices
+        
+        println("[DEBUG] BLE: Checking bonded devices...")
+        for (device in bondedDevices) {
+            println("[DEBUG] BLE: Bonded device: ${device.name} (${device.address})")
+            if (device.name?.contains("ESP32", ignoreCase = true) == true || 
+                device.name?.contains("OffGridChat", ignoreCase = true) == true) {
+                println("[DEBUG] BLE: Found bonded ESP32: ${device.name}, connecting...")
+                onStatus("connecting")
+                gatt = device.connectGatt(ctx, false, gattCb)
+                return
             }
-        }, 10000)
+        }
+        
+        // If no bonded devices, try to get device by MAC
+        try {
+            val macAddress = BleUuids.BOARD_A_MAC
+            val device = adapter.getRemoteDevice(macAddress)
+            println("[DEBUG] BLE: Trying direct connection to MAC: $macAddress")
+            onStatus("connecting")
+            gatt = device.connectGatt(ctx, false, gattCb)
+        } catch (e: Exception) {
+            println("[DEBUG] BLE: Direct MAC connection failed: ${e.message}")
+            onStatus("timeout")
+        }
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
